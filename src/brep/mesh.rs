@@ -2062,13 +2062,13 @@ fn refine_edge(
             max_angle,
         );
     }
-    let (start, end) = (curve.point_at(from), curve.point_at(to));
     if split && !curve_turns && folded {
         // Only a face's normal asks for the split, and it reverses between
         // two neighbouring samples: a fold, where it turns at any scale and
         // halving would run to MAX_DEPTH and lose the edge. While the chord
         // stays within the deflection of the curve, the piece is kept; the
         // faces' own refinement settles a fold the same way.
+        let (start, end) = (curve.point_at(from), curve.point_at(to));
         let chord_middle = [0, 1, 2].map(|axis| 0.5 * (start[axis] + end[axis]));
         if distance3(curved.to_array(), chord_middle) <= fold_deviation(tolerance) {
             return Some(());
@@ -2076,11 +2076,6 @@ fn refine_edge(
     }
     if split {
         if depth >= MAX_DEPTH {
-            // As in `refine_pcurve_edge`: a crease turns the normal at any
-            // scale, and a piece already within the tolerance in space is kept.
-            if distance3(start, end) <= tolerance {
-                return Some(());
-            }
             return None;
         }
         refine_edge(
