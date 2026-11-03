@@ -1927,10 +1927,6 @@ fn refine_edge(
     let curved = Vec3::from(curve.point_at(middle));
     let directions = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
         .map(|unit| curve.tangent_at(from + (to - from) * unit));
-    // At MAX_DEPTH: whether each face that asks for a split does so only
-    // across a collapsed point of its surface ([`collapsed_point_turn`]).
-    let deepest = depth >= MAX_DEPTH;
-    let mut only_collapsed = deepest;
     let mut split = angle_exceeds(
         crate::tessellation::max_direction_angle(&directions),
         max_angle,
@@ -1941,7 +1937,6 @@ fn refine_edge(
         };
         let pcurve_forward = *coedge_directions.get(coedge_key)?;
         let mut normals = Vec::with_capacity(9);
-        let mut fits = [([0.0; 2], [0.0; 3]); 9];
         for unit in [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0] {
             let parameter = from + (to - from) * unit;
             let on_curve = curve.point_at(parameter);
@@ -1979,43 +1974,15 @@ fn refine_edge(
             let Some(normal) = surface_display_normal(surface, uv) else {
                 continue 'coedges;
             };
-            fits[normals.len()] = (uv, on_curve);
             normals.push(normal);
         }
         split |= angle_exceeds(
             crate::tessellation::max_direction_angle(&normals),
             max_angle,
         );
-        if deepest
-            && angle_exceeds(
-                crate::tessellation::max_direction_angle(&normals),
-                max_angle,
-            )
-        {
-            only_collapsed &= collapsed_point_turn(
-                surface,
-                &normals,
-                &fits[..normals.len()],
-                max_angle,
-                tolerance,
-            );
-        }
     }
     if split {
         if depth >= MAX_DEPTH {
-            // A piece within the linear tolerance whose curve runs straight
-            // and whose faces turn only across a collapsed point -- a pole,
-            // where the normal turns at any scale -- is kept; anything else
-            // that still turns here fails the walk, as before.
-            if only_collapsed
-                && !angle_exceeds(
-                    crate::tessellation::max_direction_angle(&directions),
-                    max_angle,
-                )
-                && distance3(curve.point_at(from), curve.point_at(to)) <= tolerance
-            {
-                return Some(());
-            }
             return None;
         }
         refine_edge(
@@ -2048,52 +2015,6 @@ fn refine_edge(
         )?;
     }
     Some(())
-}
-
-/// How many times its step in space the step in parameters between two
-/// neighbouring samples must be for the surface to count as collapsed there.
-const COLLAPSED_STEP_RATIO: f64 = 1e3;
-
-/// Whether the normals sampled along a piece of edge turn past `max_angle`
-/// only across a collapsed point of the surface: every sample `(uv, point)`
-/// fits the surface within `tolerance`, and the samples split, at each pair
-/// whose parameters move [`COLLAPSED_STEP_RATIO`] times as far as their
-/// points, into runs that each stay within the limit. There a span of
-/// parameters maps to one point, like a pole, and the normal depends on the
-/// side it is approached from, so it turns however short the piece is.
-fn collapsed_point_turn(
-    surface: &super::geometry::Surface,
-    normals: &[[f64; 3]],
-    fits: &[([f64; 2], [f64; 3])],
-    max_angle: f64,
-    tolerance: f64,
-) -> bool {
-    if fits
-        .iter()
-        .any(|(uv, point)| distance3(surface.point_at(uv[0], uv[1]), *point) > tolerance)
-    {
-        return false;
-    }
-    let mut collapsed = false;
-    let mut run_start = 0;
-    for index in 1..=normals.len() {
-        let breaks = index < normals.len() && {
-            let ((before, at), (after, next)) = (fits[index - 1], fits[index]);
-            let along_parameters = (after[0] - before[0]).hypot(after[1] - before[1]);
-            along_parameters > 0.0 && along_parameters >= COLLAPSED_STEP_RATIO * distance3(at, next)
-        };
-        if breaks || index == normals.len() {
-            if angle_exceeds(
-                crate::tessellation::max_direction_angle(&normals[run_start..index]),
-                max_angle,
-            ) {
-                return false;
-            }
-            collapsed |= breaks;
-            run_start = index;
-        }
-    }
-    collapsed
 }
 
 fn coedge_geometry<'a>(
@@ -6226,25 +6147,6 @@ mod tests {
             });
             assert!(on_a_face, "{position:?} is not on the solid");
         }
-    }
-
-    #[test]
-    fn a_line_edge_into_a_cone_apex_without_pcurves_is_sampled() {
-        // Four quarter cones, 1 wide and 0.5 high, meet along four generators
-        // at the apex. Without pcurves the edge sampler fits each sample to
-        // the surface; at the apex every u gives the one point and the fit
-        // reports u = 0, a generator 135 degrees away, so the normal there
-        // turns by about 49 degrees however short the piece. The halving ran
-        // to MAX_DEPTH and left every generator unsampled. (The walls' own
-        // fill at an apex without pcurves is a separate matter.)
-        let base = Plane::orthonormal([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]).unwrap();
-        let mut body = crate::brep::make::cone_in_patches(base, 1.0, 0.5).unwrap();
-        for coedge in body.coedges.values_mut() {
-            coedge.pcurve = None;
-        }
-        let tolerance = TessellationTolerance::new(crate::tessellation::DEFAULT_ANGLE, 1e-3);
-        let schedules = body_edge_schedules(&body, tolerance);
-        assert_eq!(schedules.len(), body.edges.len());
     }
 
     #[test]
