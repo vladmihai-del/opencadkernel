@@ -6714,8 +6714,8 @@ mod tests {
     /// long sides run in opposite directions, so the patch turns over along
     /// the curve `v = 1.1 u - 0.5` (from `u = 5/11` on `v = 0` to `v = 0.6`
     /// on `u = 1`, metres long in space, off every dyadic sample) and its
-    /// normal reverses across it, as on the folded strips of the Civil 3D
-    /// corridor island of #2201.
+    /// normal reverses across it. The far corner sits 1e-5 off the plane, so
+    /// the normal turns through the fold within a fraction of a millimetre.
     const BOW_TIE: [[f64; 3]; 4] = [
         [0.0, 0.0, 0.0],
         [0.0, 0.1, 0.0],
@@ -6745,7 +6745,7 @@ mod tests {
 
     #[test]
     fn a_line_edge_between_folded_patches_is_sampled() {
-        // No pcurves, as in the corridor's data: the edge sampler halved the
+        // No pcurves on the sides: the edge sampler halved the
         // shared side by the faces' normals, which reverse on it, until
         // MAX_DEPTH and dropped the edge, so both faces were lost.
         // The second patch is flat and borders the bow-tie's `u = 1` side,
